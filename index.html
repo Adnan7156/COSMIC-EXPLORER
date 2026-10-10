@@ -1,0 +1,1780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cosmic Explorer</title>
+<meta name="description" content="A playful interactive journey through space. Launch missions, explore planets, and meet aliens.">
+<meta name="theme-color" content="#06021a">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🚀%3C/text%3E%3C/svg%3E">
+
+<style>
+/* =========================================================
+   1. THEME TOKENS + RESET
+   ========================================================= */
+:root {
+  --bg-0: #04010f;
+  --bg-1: #0b0526;
+  --bg-2: #160a3a;
+
+  --neon-cyan: #4de3ff;
+  --neon-pink: #ff5fd2;
+  --neon-purple: #a76bff;
+  --neon-lime: #8cff6b;
+  --neon-amber: #ffc861;
+
+  --text: #eaf2ff;
+  --text-dim: #a9b6d9;
+
+  --glass: rgba(18, 10, 48, 0.62);
+  --glass-brd: rgba(126, 94, 255, 0.45);
+
+  /* Changed by JS when a planet is selected */
+  --accent: #4de3ff;
+
+  --font: "Trebuchet MS", "Avenir Next", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg-0);
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button { font-family: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
+button:focus-visible { outline: 3px solid var(--neon-cyan); outline-offset: 3px; }
+
+::selection { background: var(--neon-purple); color: #fff; }
+
+/* Scrollbar flair */
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: #07021c; }
+::-webkit-scrollbar-thumb { background: #3a2170; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #573099; }
+
+/* =========================================================
+   2. BACKGROUND LAYERS
+      sky -> nebula -> dust -> starfield canvas -> shooting stars
+      -> drifting planets -> content
+   ========================================================= */
+.bg-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 2a. Base deep-space gradient */
+#sky {
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -10%, #231055 0%, transparent 60%),
+    radial-gradient(ellipse 80% 60% at 85% 20%, #2a0a4a 0%, transparent 55%),
+    linear-gradient(180deg, var(--bg-0) 0%, var(--bg-1) 45%, var(--bg-2) 100%);
+  transition: background 1.2s ease;
+}
+
+/* 2b. Slowly swirling nebula made of CSS gradients */
+#nebula {
+  z-index: 1;
+  opacity: 0.55;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(167, 107, 255, 0.55) 0%, transparent 45%),
+    radial-gradient(circle at 78% 22%, rgba(77, 227, 255, 0.38) 0%, transparent 42%),
+    radial-gradient(circle at 60% 75%, rgba(255, 95, 210, 0.42) 0%, transparent 48%),
+    radial-gradient(circle at 12% 82%, rgba(140, 255, 107, 0.22) 0%, transparent 40%);
+  filter: blur(42px);
+  animation: nebulaDrift 46s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes nebulaDrift {
+  0%   { transform: scale(1.05) translate3d(0, 0, 0) rotate(0deg); }
+  50%  { transform: scale(1.25) translate3d(-4%, 3%, 0) rotate(8deg); }
+  100% { transform: scale(1.12) translate3d(4%, -3%, 0) rotate(-6deg); }
+}
+
+/* 2c. Cosmic dust clouds */
+#dust { z-index: 2; opacity: 0.3; }
+.dust-cloud {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  animation: dustFloat linear infinite;
+  will-change: transform;
+}
+@keyframes dustFloat {
+  from { transform: translate3d(-30vw, 0, 0) scale(1); }
+  to   { transform: translate3d(130vw, -8vh, 0) scale(1.4); }
+}
+
+/* 2d. Starfield canvas (hundreds of twinkling stars, JS-drawn) */
+#stars { z-index: 3; width: 100%; height: 100%; display: block; }
+
+/* 2e. Shooting stars */
+#shooting { z-index: 4; overflow: hidden; }
+.shooting-star {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px 3px rgba(255, 255, 255, 0.85);
+  animation: shoot linear forwards;
+}
+.shooting-star::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  width: 180px;
+  height: 2px;
+  transform: translateY(-50%);
+  background: linear-gradient(270deg, rgba(255, 255, 255, 0.95), rgba(77, 227, 255, 0.35), transparent);
+  border-radius: 2px;
+}
+@keyframes shoot {
+  0%   { transform: translate3d(0, 0, 0) rotate(var(--angle, 30deg)); opacity: 0; }
+  10%  { opacity: 1; }
+  100% { transform: translate3d(var(--dx, 90vw), var(--dy, 60vh), 0) rotate(var(--angle, 30deg)); opacity: 0; }
+}
+
+/* 2f. Gently drifting background planets */
+#driftPlanets { z-index: 5; }
+.drift-planet {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.5;
+  animation: driftAcross linear infinite, spinSlow 40s linear infinite;
+  will-change: transform;
+}
+@keyframes driftAcross {
+  from { transform: translate3d(-25vw, 0, 0); }
+  to   { transform: translate3d(125vw, -10vh, 0); }
+}
+@keyframes spinSlow { to { transform: rotate(360deg); } }
+
+/* =========================================================
+   3. PARALLAX WRAPPER + SCREEN SHAKE
+   ========================================================= */
+#parallax {
+  position: relative;
+  z-index: 10;
+  transition: transform 0.35s cubic-bezier(0.22, 0.9, 0.3, 1);
+  will-change: transform;
+}
+#shakeWrap.shake { animation: shake 0.7s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+@keyframes shake {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  10% { transform: translate(-9px, 5px) rotate(-0.7deg); }
+  20% { transform: translate(8px, -6px) rotate(0.7deg); }
+  30% { transform: translate(-7px, -4px) rotate(-0.5deg); }
+  40% { transform: translate(7px, 6px) rotate(0.5deg); }
+  50% { transform: translate(-6px, 3px) rotate(-0.4deg); }
+  60% { transform: translate(5px, -3px) rotate(0.4deg); }
+  70% { transform: translate(-4px, -2px); }
+  80% { transform: translate(3px, 2px); }
+  90% { transform: translate(-2px, 1px); }
+}
+
+/* =========================================================
+   4. LAYOUT
+   ========================================================= */
+.wrap {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 1rem 4rem;
+}
+
+section { margin-bottom: clamp(3rem, 8vw, 5rem); }
+
+.section-title {
+  margin: 0 0 0.4rem;
+  font-size: clamp(1.5rem, 5vw, 2.3rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+  background: linear-gradient(92deg, var(--neon-cyan), var(--neon-pink), var(--neon-purple));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.section-sub {
+  margin: 0 0 1.8rem;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: clamp(0.92rem, 3vw, 1.05rem);
+}
+
+/* =========================================================
+   5. HERO
+   ========================================================= */
+.hero {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4.5rem 1rem 3rem;
+  gap: 1.2rem;
+}
+
+/* Glowing shimmering title */
+.title {
+  margin: 0;
+  font-size: clamp(2.1rem, 11vw, 6rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.05;
+  animation: titleFloat 6s ease-in-out infinite;
+}
+@keyframes titleFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-14px); }
+}
+
+.title .word { display: inline-block; white-space: nowrap; }
+
+.title .ch {
+  display: inline-block;
+  background: linear-gradient(100deg, #fff 0%, var(--neon-cyan) 25%, var(--neon-pink) 50%, var(--neon-purple) 75%, #fff 100%);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 14px rgba(77, 227, 255, 0.55)) drop-shadow(0 0 30px rgba(255, 95, 210, 0.35));
+  animation: shimmer 4s linear infinite, chBob 3.4s ease-in-out infinite;
+  transition: transform 0.25s ease;
+}
+.title .ch:hover { transform: translateY(-12px) scale(1.18) rotate(-5deg); }
+
+@keyframes shimmer {
+  from { background-position: 0% 50%; }
+  to   { background-position: 300% 50%; }
+}
+@keyframes chBob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-7px); }
+}
+
+.tagline {
+  margin: 0;
+  max-width: 44ch;
+  color: var(--text-dim);
+  font-size: clamp(0.98rem, 3.4vw, 1.2rem);
+  line-height: 1.6;
+}
+
+/* Floating astronaut */
+.astronaut {
+  font-size: clamp(4rem, 17vw, 7rem);
+  line-height: 1;
+  background: none;
+  border: none;
+  padding: 0.4rem;
+  filter: drop-shadow(0 0 26px rgba(77, 227, 255, 0.55));
+  animation: astroFloat 5s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes astroFloat {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50%      { transform: translateY(-26px) rotate(6deg); }
+}
+.astronaut:hover { filter: drop-shadow(0 0 40px rgba(255, 95, 210, 0.85)); }
+.astronaut.spin { animation: astroSpin 1s cubic-bezier(0.3, 1.2, 0.4, 1); }
+@keyframes astroSpin {
+  0%   { transform: scale(1) rotate(0); }
+  40%  { transform: scale(1.35) rotate(220deg) translateY(-30px); }
+  70%  { transform: scale(0.92) rotate(340deg); }
+  100% { transform: scale(1) rotate(360deg); }
+}
+
+/* Astronaut speech bubble */
+.astro-say {
+  min-height: 2.6em;
+  max-width: 34ch;
+  margin: 0 auto;
+  padding: 0.6rem 1.1rem;
+  font-size: clamp(0.9rem, 3.2vw, 1.02rem);
+  font-weight: 600;
+  color: var(--text);
+  background: var(--glass);
+  border: 1px solid var(--glass-brd);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transform: translateY(8px) scale(0.95);
+  transition: opacity 0.3s, transform 0.3s;
+}
+.astro-say.show { opacity: 1; transform: translateY(0) scale(1); }
+
+/* =========================================================
+   6. BUTTONS
+   ========================================================= */
+.btn {
+  position: relative;
+  padding: 0.9rem 1.8rem;
+  font-size: clamp(1rem, 3.6vw, 1.15rem);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: linear-gradient(135deg, rgba(77, 227, 255, 0.18), rgba(167, 107, 255, 0.25));
+  border: 2px solid var(--glass-brd);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+  transition: transform 0.2s cubic-bezier(0.3, 1.4, 0.5, 1), box-shadow 0.25s, border-color 0.25s, filter 0.25s;
+  box-shadow: 0 0 18px rgba(77, 227, 255, 0.22), inset 0 0 18px rgba(167, 107, 255, 0.14);
+}
+/* Shine sweep on hover */
+.btn::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -120%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  transition: left 0.6s ease;
+}
+.btn:hover::before { left: 140%; }
+.btn:hover {
+  transform: translateY(-4px) scale(1.05);
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 34px rgba(77, 227, 255, 0.6), inset 0 0 22px rgba(167, 107, 255, 0.3);
+}
+.btn:active { transform: translateY(2px) scale(0.96); }
+
+/* The giant launch button */
+.btn-launch {
+  font-size: clamp(1.1rem, 4.4vw, 1.6rem);
+  padding: 1.1rem 2.6rem;
+  border-width: 3px;
+  border-color: rgba(255, 200, 97, 0.6);
+  background: linear-gradient(135deg, rgba(255, 95, 210, 0.3), rgba(255, 200, 97, 0.3));
+  animation: launchPulse 2.4s ease-in-out infinite;
+}
+@keyframes launchPulse {
+  0%, 100% { box-shadow: 0 0 22px rgba(255, 95, 210, 0.35), inset 0 0 18px rgba(255, 200, 97, 0.18); }
+  50%      { box-shadow: 0 0 52px rgba(255, 95, 210, 0.8), inset 0 0 26px rgba(255, 200, 97, 0.35); }
+}
+.btn-launch:disabled { opacity: 0.5; pointer-events: none; filter: grayscale(0.5); }
+.btn-launch.bounce { animation: btnBounce 0.6s ease-out; }
+@keyframes btnBounce {
+  0%   { transform: scale(1, 1); }
+  20%  { transform: scale(1.2, 0.78); }
+  45%  { transform: translateY(-22px) scale(0.9, 1.15); }
+  70%  { transform: translateY(0) scale(1.1, 0.9); }
+  100% { transform: scale(1, 1); }
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  justify-content: center;
+}
+
+/* Scroll hint arrow */
+.scroll-hint {
+  margin-top: 0.5rem;
+  font-size: 1.8rem;
+  color: var(--neon-cyan);
+  animation: hintBob 2s ease-in-out infinite;
+  opacity: 0.8;
+}
+@keyframes hintBob {
+  0%, 100% { transform: translateY(0); opacity: 0.5; }
+  50%      { transform: translateY(10px); opacity: 1; }
+}
+
+/* =========================================================
+   7. ROCKET LAUNCH ANIMATION
+   ========================================================= */
+#rocketLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  overflow: hidden;
+  display: none;
+}
+#rocketLayer.active { display: block; }
+
+.rocket {
+  position: absolute;
+  left: 50%;
+  bottom: -220px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: rocketFly 3.4s cubic-bezier(0.55, 0, 0.9, 0.35) forwards;
+}
+@keyframes rocketFly {
+  0%   { bottom: -220px; transform: translateX(-50%) scale(1) rotate(0deg); }
+  18%  { bottom: 8vh;    transform: translateX(-50%) scale(1.05) rotate(-2deg); }
+  40%  { bottom: 26vh;   transform: translateX(-50%) scale(1) rotate(2deg); }
+  100% { bottom: 125vh;  transform: translateX(-50%) scale(0.45) rotate(-1deg); }
+}
+
+.rocket-body { font-size: clamp(3.4rem, 12vw, 5.5rem); line-height: 1; filter: drop-shadow(0 0 22px rgba(255, 200, 97, 0.8)); }
+
+/* Animated flame cone under the rocket */
+.flame {
+  width: clamp(26px, 8vw, 40px);
+  height: clamp(60px, 18vw, 96px);
+  margin-top: -14px;
+  border-radius: 50% 50% 46% 46% / 22% 22% 78% 78%;
+  background: linear-gradient(180deg, #fff6c2 0%, #ffc861 28%, #ff7a2f 58%, #ff2f5e 85%, transparent 100%);
+  filter: blur(1.5px) drop-shadow(0 0 26px rgba(255, 140, 50, 0.95));
+  transform-origin: 50% 0%;
+  animation: flameFlicker 0.09s steps(2, end) infinite;
+}
+@keyframes flameFlicker {
+  0%   { transform: scaleY(1) scaleX(1) skewX(0deg); opacity: 1; }
+  50%  { transform: scaleY(1.28) scaleX(0.84) skewX(4deg); opacity: 0.88; }
+  100% { transform: scaleY(0.92) scaleX(1.12) skewX(-4deg); opacity: 1; }
+}
+
+/* Smoke puffs */
+.smoke {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(220, 220, 240, 0.65), rgba(160, 160, 200, 0.12) 65%, transparent 72%);
+  animation: smokePuff 2s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes smokePuff {
+  0%   { transform: translate(-50%, 0) scale(0.35); opacity: 0.85; }
+  100% { transform: translate(calc(-50% + var(--sx, 0px)), 120px) scale(2.6); opacity: 0; }
+}
+
+/* Countdown numbers */
+#countdown {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: none;
+  place-items: center;
+  pointer-events: none;
+  font-size: clamp(5rem, 28vw, 15rem);
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 0 40px var(--neon-cyan), 0 0 90px var(--neon-pink);
+}
+#countdown.active { display: grid; }
+#countdown span { animation: countPop 0.9s ease-out; }
+@keyframes countPop {
+  0%   { transform: scale(2.6); opacity: 0; }
+  30%  { transform: scale(1); opacity: 1; }
+  75%  { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.5); opacity: 0; }
+}
+
+/* Warp speed flash */
+#warp {
+  position: fixed;
+  inset: 0;
+  z-index: 68;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.9) 0%, rgba(167, 107, 255, 0.3) 35%, transparent 70%);
+  transition: opacity 0.4s;
+}
+#warp.on { opacity: 1; }
+
+/* =========================================================
+   8. GLOWING CARDS
+   ========================================================= */
+.card {
+  position: relative;
+  background: var(--glass);
+  border: 1.5px solid var(--glass-brd);
+  border-radius: 24px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 0 34px rgba(77, 227, 255, 0.14), inset 0 0 40px rgba(167, 107, 255, 0.08);
+  padding: 1.5rem 1.3rem;
+}
+
+.card.enter { animation: cardIn 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+@keyframes cardIn {
+  0%   { opacity: 0; transform: translateY(40px) scale(0.92) rotateX(12deg); filter: blur(8px); }
+  100% { opacity: 1; transform: translateY(0) scale(1) rotateX(0); filter: blur(0); }
+}
+
+/* Mission result card */
+#missionCard {
+  max-width: 620px;
+  margin: 1.6rem auto 0;
+  text-align: center;
+  display: none;
+  border-color: rgba(255, 200, 97, 0.5);
+  box-shadow: 0 0 44px rgba(255, 200, 97, 0.28), inset 0 0 40px rgba(255, 95, 210, 0.1);
+}
+#missionCard.show { display: block; }
+.mission-badge {
+  display: inline-block;
+  padding: 0.3rem 1rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #06021a;
+  background: linear-gradient(90deg, var(--neon-amber), var(--neon-pink));
+  border-radius: 999px;
+}
+.mission-text { margin: 0; font-size: clamp(1.05rem, 4vw, 1.35rem); line-height: 1.6; font-weight: 600; }
+
+/* =========================================================
+   9. CSS PLANETS
+   ========================================================= */
+.planet {
+  position: relative;
+  border-radius: 50%;
+  margin: 0 auto;
+  background-image: var(--surface);
+  background-size: 200% 100%;
+  box-shadow:
+    inset -14px -10px 32px rgba(0, 0, 0, 0.75),
+    inset 8px 6px 22px rgba(255, 255, 255, 0.14),
+    0 0 28px var(--glow);
+  animation: planetSpin 18s linear infinite;
+  will-change: background-position;
+}
+@keyframes planetSpin {
+  from { background-position: 0% 50%; }
+  to   { background-position: 200% 50%; }
+}
+
+/* Saturn / Uranus rings */
+.planet.ringed::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 185%;
+  height: 34%;
+  transform: translate(-50%, -50%) rotate(-18deg);
+  border: 4px solid var(--ring, rgba(255, 220, 160, 0.75));
+  border-radius: 50%;
+  box-shadow: 0 0 18px var(--glow);
+  pointer-events: none;
+}
+.planet.ringed-v::after { transform: translate(-50%, -50%) rotate(78deg); }
+
+/* =========================================================
+   10. PLANET GRID
+   ========================================================= */
+.planet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 1.1rem;
+}
+
+.planet-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 1.3rem 0.9rem 1.1rem;
+  text-align: center;
+  background: var(--glass);
+  border: 1.5px solid var(--glass-brd);
+  border-radius: 22px;
+  backdrop-filter: blur(12px);
+  transition: transform 0.3s cubic-bezier(0.3, 1.2, 0.4, 1), box-shadow 0.3s, border-color 0.3s;
+  animation: cardIn 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+.planet-card:hover {
+  transform: translateY(-10px) scale(1.04);
+  border-color: var(--glow);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5), 0 0 40px var(--glow);
+}
+.planet-card:hover .planet { animation-duration: 6s; transform: scale(1.1); }
+.planet-card.selected {
+  border-color: var(--glow);
+  box-shadow: 0 0 46px var(--glow), inset 0 0 30px rgba(255, 255, 255, 0.07);
+  transform: translateY(-6px) scale(1.05);
+}
+.planet-card .planet { width: 76px; height: 76px; transition: transform 0.35s; }
+
+.planet-name { font-size: 1.12rem; font-weight: 800; letter-spacing: 0.05em; margin: 0; }
+.planet-dist { font-size: 0.82rem; color: var(--text-dim); margin: 0; }
+.planet-fact { font-size: 0.86rem; color: var(--text-dim); line-height: 1.5; margin: 0; min-height: 3.8em; }
+
+.btn-visit {
+  margin-top: 0.3rem;
+  padding: 0.52rem 1.15rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), var(--glow));
+  border: 1.5px solid var(--glow);
+  border-radius: 999px;
+  transition: transform 0.2s, box-shadow 0.2s, filter 0.2s;
+}
+.btn-visit:hover { transform: scale(1.09); box-shadow: 0 0 24px var(--glow); filter: brightness(1.2); }
+.btn-visit:active { transform: scale(0.93); }
+
+/* =========================================================
+   11. PLANET VIEWER (selected planet stage)
+   ========================================================= */
+.viewer {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.4rem;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+@media (min-width: 820px) {
+  .viewer { grid-template-columns: 300px 1fr; }
+}
+
+.stage {
+  position: relative;
+  height: 280px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 24px;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.05), transparent 65%);
+}
+
+/* The big centered planet */
+#bigPlanet {
+  width: 170px;
+  height: 170px;
+  animation: planetSpin 22s linear infinite, bigFloat 7s ease-in-out infinite;
+}
+@keyframes bigFloat {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-16px) scale(1.03); }
+}
+#bigPlanet.arrive { animation: planetSpin 22s linear infinite, planetArrive 1s cubic-bezier(0.2, 1.3, 0.4, 1); }
+@keyframes planetArrive {
+  0%   { transform: scale(0.2) translateX(-120px); opacity: 0; }
+  60%  { transform: scale(1.18) translateX(0); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+/* Spaceship that flies toward the selected planet */
+.ship {
+  position: absolute;
+  left: -70px;
+  top: 58%;
+  font-size: 2.3rem;
+  opacity: 0;
+  filter: drop-shadow(0 0 14px var(--neon-cyan));
+}
+.ship.fly { animation: shipFly 1.7s cubic-bezier(0.35, 0.1, 0.3, 1) forwards; }
+@keyframes shipFly {
+  0%   { left: -70px; top: 78%; opacity: 0; transform: rotate(14deg) scale(0.7); }
+  15%  { opacity: 1; }
+  70%  { left: 48%; top: 46%; opacity: 1; transform: rotate(-10deg) scale(1.15); }
+  100% { left: 52%; top: 50%; opacity: 0; transform: rotate(0deg) scale(0.3); }
+}
+
+/* Orbiting moon around the stage planet */
+.orbit {
+  position: absolute;
+  width: 250px;
+  height: 250px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  animation: spinSlow 14s linear infinite;
+}
+.orbit::before {
+  content: "🛰️";
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.3rem;
+}
+
+/* Info panel next to the stage */
+.info h3 {
+  margin: 0 0 0.2rem;
+  font-size: clamp(1.6rem, 6vw, 2.4rem);
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  color: var(--glow, var(--neon-cyan));
+  text-shadow: 0 0 22px var(--glow);
+}
+.info .subtitle { margin: 0 0 1rem; color: var(--text-dim); font-style: italic; font-size: 0.95rem; }
+.info .body { margin: 0 0 1.1rem; line-height: 1.7; font-size: clamp(0.95rem, 3.4vw, 1.08rem); }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.7rem;
+}
+.stat {
+  padding: 0.7rem 0.8rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+}
+.stat .k { display: block; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); }
+.stat .v { display: block; margin-top: 0.2rem; font-size: 1rem; font-weight: 800; color: var(--glow); }
+
+.info.swap { animation: fadeSlide 0.6s ease both; }
+@keyframes fadeSlide {
+  0%   { opacity: 0; transform: translateX(26px); filter: blur(5px); }
+  100% { opacity: 1; transform: translateX(0); filter: blur(0); }
+}
+
+/* =========================================================
+   12. FACT CARD (flip animation)
+   ========================================================= */
+.fact-wrap { max-width: 660px; margin: 0 auto; perspective: 1400px; }
+
+#factCard {
+  text-align: center;
+  min-height: 170px;
+  display: grid;
+  place-items: center;
+  transform-style: preserve-3d;
+}
+#factCard.flip { animation: cardFlip 0.8s cubic-bezier(0.4, 0.1, 0.3, 1); }
+@keyframes cardFlip {
+  0%   { transform: rotateY(0deg) scale(1); }
+  50%  { transform: rotateY(90deg) scale(0.9); }
+  51%  { transform: rotateY(-90deg) scale(0.9); }
+  100% { transform: rotateY(0deg) scale(1); }
+}
+
+.fact-icon { font-size: 2.6rem; margin-bottom: 0.5rem; display: block; animation: astroFloat 4s ease-in-out infinite; }
+.fact-text { margin: 0; font-size: clamp(1rem, 4vw, 1.3rem); line-height: 1.65; font-weight: 600; }
+
+/* =========================================================
+   13. ALIEN GENERATOR
+   ========================================================= */
+.alien-wrap { max-width: 620px; margin: 0 auto; text-align: center; }
+
+#alienCard { border-color: rgba(140, 255, 107, 0.4); box-shadow: 0 0 40px rgba(140, 255, 107, 0.2); }
+
+.alien-avatar {
+  width: 128px;
+  height: 128px;
+  margin: 0 auto 0.8rem;
+  display: grid;
+  place-items: center;
+  font-size: 4rem;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--a1, #8cff6b), var(--a2, #4de3ff) 70%);
+  box-shadow: 0 0 44px var(--a1, #8cff6b), inset 0 -12px 26px rgba(0, 0, 0, 0.42);
+  animation: alienBob 3.2s ease-in-out infinite;
+}
+@keyframes alienBob {
+  0%, 100% { transform: translateY(0) rotate(-4deg) scale(1); }
+  50%      { transform: translateY(-14px) rotate(4deg) scale(1.05); }
+}
+.alien-avatar.pop { animation: alienPop 0.7s cubic-bezier(0.2, 1.5, 0.4, 1); }
+@keyframes alienPop {
+  0%   { transform: scale(0.2) rotate(-180deg); opacity: 0; }
+  60%  { transform: scale(1.2) rotate(12deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); }
+}
+
+.alien-name { margin: 0 0 0.3rem; font-size: clamp(1.25rem, 5vw, 1.8rem); font-weight: 900; color: var(--a1, var(--neon-lime)); text-shadow: 0 0 20px var(--a1, #8cff6b); }
+.alien-bio { margin: 0 0 1rem; font-size: clamp(0.95rem, 3.6vw, 1.1rem); line-height: 1.65; color: var(--text); }
+
+.trait-row { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+.trait {
+  padding: 0.35rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--a1, var(--neon-lime));
+  color: var(--text);
+  animation: cardIn 0.45s ease both;
+}
+
+/* =========================================================
+   14. TOAST
+   ========================================================= */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 95;
+  max-width: min(92vw, 460px);
+  padding: 0.8rem 1.4rem;
+  text-align: center;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text);
+  background: rgba(14, 6, 40, 0.92);
+  border: 1.5px solid var(--neon-cyan);
+  border-radius: 999px;
+  box-shadow: 0 0 30px rgba(77, 227, 255, 0.45);
+  backdrop-filter: blur(10px);
+  transform: translate(-50%, 200%);
+  opacity: 0;
+  transition: transform 0.45s cubic-bezier(0.2, 1.4, 0.4, 1), opacity 0.3s;
+  pointer-events: none;
+}
+.toast.show { transform: translate(-50%, 0); opacity: 1; }
+
+.footer { text-align: center; color: var(--text-dim); font-size: 0.85rem; padding-bottom: 2rem; }
+
+/* =========================================================
+   15. REDUCED MOTION
+   ========================================================= */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  #nebula, #dust, #shooting, #driftPlanets { display: none; }
+}
+</style>
+</head>
+
+<body>
+
+<!-- ============ BACKGROUND LAYERS ============ -->
+<div class="bg-layer" id="sky"></div>
+<div class="bg-layer" id="nebula"></div>
+<div class="bg-layer" id="dust"></div>
+<canvas class="bg-layer" id="stars"></canvas>
+<div class="bg-layer" id="shooting"></div>
+<div class="bg-layer" id="driftPlanets"></div>
+<div id="warp"></div>
+
+<!-- ============ ROCKET + COUNTDOWN OVERLAYS ============ -->
+<div id="rocketLayer" aria-hidden="true"></div>
+<div id="countdown" aria-hidden="true"></div>
+
+<!-- ============ MAIN CONTENT (shakes + parallax) ============ -->
+<div id="shakeWrap">
+<div id="parallax">
+
+  <!-- ---------- HERO ---------- -->
+  <header class="hero">
+    <h1 class="title" id="title" aria-label="Cosmic Explorer">COSMIC EXPLORER</h1>
+    <p class="tagline">Strap in, traveler. Eight planets, endless facts, and at least one alien who dances to satellite signals.</p>
+
+    <button class="astronaut" id="astronaut" type="button" aria-label="Poke the astronaut">👨‍🚀</button>
+    <div class="astro-say" id="astroSay" role="status" aria-live="polite"></div>
+
+    <button class="btn btn-launch" id="launchBtn" type="button">🚀 Launch Mission</button>
+
+    <!-- Mission result card -->
+    <div class="card" id="missionCard">
+      <span class="mission-badge">Mission Report</span>
+      <p class="mission-text" id="missionText"></p>
+    </div>
+
+    <div class="scroll-hint" aria-hidden="true">▼</div>
+  </header>
+
+  <main class="wrap">
+
+    <!-- ---------- PLANET VIEWER + GRID ---------- -->
+    <section id="planets">
+      <h2 class="section-title">Explore Planets</h2>
+      <p class="section-sub">Tap any world to fly there. The ship is fueled and mildly reliable.</p>
+
+      <div class="viewer">
+        <div class="stage">
+          <div class="orbit" aria-hidden="true"></div>
+          <div class="planet" id="bigPlanet" aria-hidden="true"></div>
+          <div class="ship" id="ship" aria-hidden="true">🚀</div>
+        </div>
+
+        <div class="info" id="planetInfo" aria-live="polite">
+          <h3 id="pName">Earth</h3>
+          <p class="subtitle" id="pSub">Your current parking spot</p>
+          <p class="body" id="pFact">Pick a planet below to begin the tour.</p>
+          <div class="stat-grid">
+            <div class="stat"><span class="k">Distance from Sun</span><span class="v" id="pDist">—</span></div>
+            <div class="stat"><span class="k">Day length</span><span class="v" id="pDay">—</span></div>
+            <div class="stat"><span class="k">Moons</span><span class="v" id="pMoons">—</span></div>
+            <div class="stat"><span class="k">Temperature</span><span class="v" id="pTemp">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="planet-grid" id="planetGrid"></div>
+    </section>
+
+    <!-- ---------- RANDOM SPACE FACT ---------- -->
+    <section id="facts">
+      <h2 class="section-title">Random Space Fact</h2>
+      <p class="section-sub">Certified true. Mostly astonishing.</p>
+
+      <div class="fact-wrap">
+        <div class="card" id="factCard">
+          <div>
+            <span class="fact-icon" id="factIcon">🌌</span>
+            <p class="fact-text" id="factText">Press the button and the universe will tell you something strange.</p>
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top:1.4rem">
+          <button class="btn" id="factBtn" type="button">✨ Random Space Fact</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- ALIEN GENERATOR ---------- -->
+    <section id="aliens">
+      <h2 class="section-title">Create an Alien</h2>
+      <p class="section-sub">Warning: results are legally classified as "very silly".</p>
+
+      <div class="alien-wrap">
+        <div class="card" id="alienCard">
+          <div class="alien-avatar" id="alienAvatar">👽</div>
+          <h3 class="alien-name" id="alienName">Nobody yet</h3>
+          <p class="alien-bio" id="alienBio">Press the button to summon a brand new lifeform from a questionable corner of the galaxy.</p>
+          <div class="trait-row" id="alienTraits"></div>
+        </div>
+        <div class="btn-row" style="margin-top:1.4rem">
+          <button class="btn" id="alienBtn" type="button">👽 Create Alien</button>
+          <button class="btn" id="alienCopyBtn" type="button">📋 Copy Alien</button>
+        </div>
+      </div>
+    </section>
+
+    <p class="footer">Built with pure HTML, CSS &amp; JavaScript · No rockets were harmed 🛸</p>
+  </main>
+
+</div>
+</div>
+
+<!-- ============ TOAST ============ -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* =========================================================
+   COSMIC EXPLORER — all JavaScript
+   Sections:
+     1.  Data (planets, facts, aliens, astronaut lines)
+     2.  Helpers
+     3.  Starfield canvas (twinkle + warp speed)
+     4.  Cosmic dust + drifting planets
+     5.  Shooting stars
+     6.  Title builder (shimmering letters)
+     7.  Parallax (mouse + touch + device tilt)
+     8.  Toast
+     9.  Astronaut interactions
+    10.  Rocket launch sequence
+    11.  Planet cards + planet viewer
+    12.  Random space facts
+    13.  Alien generator
+    14.  Boot
+   ========================================================= */
+(function () {
+  'use strict';
+
+  /* ---------------------------------------------------------
+     1. DATA
+     --------------------------------------------------------- */
+
+  // Each planet carries its CSS surface gradient, glow color, and real stats.
+  const PLANETS = [
+    {
+      id: 'mercury', name: 'Mercury', emoji: '☿️',
+      surface: 'linear-gradient(90deg,#8a8178 0%,#b9afa2 18%,#6e665e 38%,#a79c8e 58%,#7d7469 80%,#8a8178 100%)',
+      glow: '#b9afa2', sky: '#1a1410',
+      dist: '58 million km', day: '1,408 hrs', moons: '0', temp: '-180 to 430°C',
+      sub: 'The tiny speed demon',
+      fact: 'Mercury races around the Sun in just 88 days, but a single day there lasts longer than its whole year.'
+    },
+    {
+      id: 'venus', name: 'Venus', emoji: '♀️',
+      surface: 'linear-gradient(90deg,#e8b56b 0%,#ffd9a0 20%,#c98b45 42%,#f5c983 62%,#d99b57 82%,#e8b56b 100%)',
+      glow: '#ffd9a0', sky: '#2a1a08',
+      dist: '108 million km', day: '5,832 hrs', moons: '0', temp: '465°C',
+      sub: 'The upside-down oven',
+      fact: 'Venus spins backwards and is hot enough to melt lead. Its clouds are made of sulfuric acid. Lovely.'
+    },
+    {
+      id: 'earth', name: 'Earth', emoji: '🌍',
+      surface: 'linear-gradient(90deg,#2a6fd6 0%,#4ca85f 16%,#2f84e0 34%,#3fa05a 52%,#2a6fd6 70%,#56b06a 86%,#2a6fd6 100%)',
+      glow: '#4de3ff', sky: '#061a33',
+      dist: '150 million km', day: '24 hrs', moons: '1', temp: '-88 to 58°C',
+      sub: 'Home sweet home',
+      fact: 'Earth is the only planet known to have pizza. It is also 70% ocean and the only world with confirmed life.'
+    },
+    {
+      id: 'mars', name: 'Mars', emoji: '🔴',
+      surface: 'linear-gradient(90deg,#c1440e 0%,#e4703a 18%,#9c3a12 38%,#d9602a 58%,#a94418 80%,#c1440e 100%)',
+      glow: '#ff7a4d', sky: '#2b0d06',
+      dist: '228 million km', day: '24.6 hrs', moons: '2', temp: '-140 to 20°C',
+      sub: 'The rusty red neighbor',
+      fact: 'Mars hosts Olympus Mons, the tallest volcano in the solar system — about three times the height of Everest.'
+    },
+    {
+      id: 'jupiter', name: 'Jupiter', emoji: '🪐',
+      surface: 'linear-gradient(90deg,#c9a26d 0%,#e6cfa8 12%,#9c7a4f 24%,#dcbb8c 36%,#8f6b42 50%,#e0c49b 64%,#a9824f 78%,#d8b887 90%,#c9a26d 100%)',
+      glow: '#e6cfa8', sky: '#241a0c',
+      dist: '778 million km', day: '9.9 hrs', moons: '95+', temp: '-145°C',
+      sub: 'The gas giant bouncer',
+      fact: 'Jupiter\'s Great Red Spot is a storm wider than Earth that has been raging for at least 350 years.'
+    },
+    {
+      id: 'saturn', name: 'Saturn', emoji: '🪐', ringed: true, ring: 'rgba(255,224,170,.8)',
+      surface: 'linear-gradient(90deg,#d9c08a 0%,#f0dcae 16%,#b79a67 34%,#e8d2a0 52%,#c2a473 72%,#d9c08a 100%)',
+      glow: '#f0dcae', sky: '#241c0c',
+      dist: '1.43 billion km', day: '10.7 hrs', moons: '146+', temp: '-178°C',
+      sub: 'The one with the hat',
+      fact: 'Saturn is so light for its size that it would float in a bathtub — if you could find one big enough.'
+    },
+    {
+      id: 'uranus', name: 'Uranus', emoji: '🌀', ringed: true, ringV: true, ring: 'rgba(170,240,255,.7)',
+      surface: 'linear-gradient(90deg,#8fd8e8 0%,#bdf0f8 20%,#6bbccf 42%,#a9e6f2 62%,#7cc8db 82%,#8fd8e8 100%)',
+      glow: '#9ee9f7', sky: '#07212b',
+      dist: '2.87 billion km', day: '17.2 hrs', moons: '28', temp: '-224°C',
+      sub: 'The sideways roller',
+      fact: 'Uranus rolls on its side like a runaway barrel, so each pole gets 42 straight years of sunlight.'
+    },
+    {
+      id: 'neptune', name: 'Neptune', emoji: '🔵',
+      surface: 'linear-gradient(90deg,#2b5fd9 0%,#5a8df5 18%,#1d3fa8 40%,#4a79e8 60%,#2448b8 82%,#2b5fd9 100%)',
+      glow: '#5a8df5', sky: '#060f2e',
+      dist: '4.5 billion km', day: '16.1 hrs', moons: '16', temp: '-214°C',
+      sub: 'The windy blue giant',
+      fact: 'Neptune has the fastest winds in the solar system, screaming along at over 2,000 km per hour.'
+    }
+  ];
+
+  // Space facts used by the Random Fact button and mission reports
+  const FACTS = [
+    { icon: '🌟', text: 'There are more stars in the universe than grains of sand on every beach on Earth.' },
+    { icon: '🕳️', text: 'A black hole bends time. Near one, you would age slower than your friends back home.' },
+    { icon: '🌙', text: 'The Moon is drifting away from Earth about 3.8 cm every year. Rude.' },
+    { icon: '💎', text: 'Scientists believe it may rain diamonds on Neptune and Uranus.' },
+    { icon: '🔇', text: 'Space is silent. There is no air to carry sound, so no one can hear you scream.' },
+    { icon: '☀️', text: 'The Sun makes up about 99.8% of all the mass in our solar system.' },
+    { icon: '🌡️', text: 'Sunlight takes about 8 minutes and 20 seconds to reach Earth.' },
+    { icon: '🧊', text: 'There is a giant water cloud in space holding 140 trillion times the water in Earth\'s oceans.' },
+    { icon: '🚀', text: 'Voyager 1 is the most distant human-made object, over 24 billion km from home.' },
+    { icon: '👣', text: 'Footprints on the Moon could last millions of years because there is no wind to erase them.' },
+    { icon: '⭐', text: 'A teaspoon of neutron star material would weigh about 6 billion tons.' },
+    { icon: '🌀', text: 'Our galaxy, the Milky Way, is on a collision course with Andromeda — in 4 billion years.' },
+    { icon: '🛰️', text: 'Astronauts on the ISS see 16 sunrises and sunsets every single day.' },
+    { icon: '🪐', text: 'There is a planet made largely of diamond, nicknamed 55 Cancri e.' },
+    { icon: '🔭', text: 'When you look at distant stars, you are looking back in time — some may no longer exist.' },
+    { icon: '🧲', text: 'Jupiter\'s magnetic field is so huge that if it glowed, it would look bigger than the full Moon.' },
+    { icon: '🌋', text: 'Jupiter\'s moon Io is the most volcanically active place in the solar system.' },
+    { icon: '💨', text: 'Saturn\'s moon Titan has lakes and rivers — but they are made of liquid methane.' },
+    { icon: '🥶', text: 'The coldest known place in the universe is the Boomerang Nebula at -272°C.' },
+    { icon: '📏', text: 'If the Sun were a beach ball, Earth would be a pea about 26 metres away.' }
+  ];
+
+  // Mission report lines (mixed with real facts for comedy)
+  const MISSION_LINES = [
+    'Mission successful! You floated past a satellite that waved back.',
+    'You reached orbit and immediately dropped your sandwich. It is now in orbit too.',
+    'Transmission received: a passing comet rated your flying "surprisingly okay".',
+    'You discovered a new asteroid. Naming rights cost 400 space dollars.',
+    'Ground control confirms: you looked extremely cool during takeoff.'
+  ];
+
+  // Astronaut chatter
+  const ASTRO_LINES = [
+    'Hey! Careful, I am full of snacks.',
+    'Zero gravity, maximum vibes. 🌌',
+    'I have not done laundry in 6 months. No one can tell.',
+    'Did you know space smells like burnt steak? Astronauts say so!',
+    'Boop! That was my helmet.',
+    'I would wave back but I am spinning.',
+    'Fun fact: I cry in circles up here. Tears do not fall.',
+    'Please press Launch Mission. I am bored.',
+    'Ten out of ten poke. Very professional.'
+  ];
+
+  // Alien generator word banks
+  const ALIEN_EMOJI = ['👽', '🛸', '👾', '🤖', '🐙', '🦑', '🧟', '🦠', '🪼', '🐸'];
+  const ALIEN_FIRST = ['Zog', 'Blip', 'Krenk', 'Vorp', 'Nimbo', 'Squee', 'Glorb', 'Thraxx', 'Wibble', 'Zemp', 'Quark', 'Flarn', 'Bozzle', 'Yix'];
+  const ALIEN_LAST  = ['the Moist', 'the Unbothered', 'the Loud', 'the Third', 'of the Deep Fog', 'the Snack Thief', 'the Mildly Cursed', 'the Punctual', 'the Sticky'];
+  const ALIEN_PLANET = ['Blorp', 'Zignax', 'Wobblon', 'Krunk-9', 'Fizzle Prime', 'Googax', 'Thromb', 'Pluvia', 'Snorbit', 'Ventrax', 'Bimbly', 'Yarn-7'];
+  const ALIEN_LOVES = [
+    'eating moon cookies', 'dancing to satellite signals', 'collecting lost socks from Earth',
+    'racing comets on a tricycle', 'licking frozen asteroids', 'arguing with vending machines',
+    'knitting tiny sweaters for meteors', 'humming at black holes', 'photographing nebulas badly',
+    'building sandcastles out of stardust', 'rating planets out of ten', 'napping inside volcanoes'
+  ];
+  const ALIEN_HATES = [
+    'Tuesdays', 'loud shoes', 'the concept of queues', 'gravity', 'damp towels',
+    'small talk with comets', 'the colour beige', 'elevator music', 'being perceived', 'wet socks'
+  ];
+  const ALIEN_TRAITS = [
+    'Extremely polite', 'Chaotic', 'Afraid of spoons', 'Speaks in beeps', 'Glows when lying',
+    'Has 11 elbows', 'Mildly magnetic', 'Allergic to Mondays', 'Fluent in whale', 'Professional napper',
+    'Smells like lemons', 'Can taste colours', 'Unreasonably tall', 'Invisible on weekends'
+  ];
+  const ALIEN_COLORS = [
+    ['#8cff6b', '#4de3ff'], ['#ff5fd2', '#a76bff'], ['#ffc861', '#ff5f6d'],
+    ['#4de3ff', '#2b5fd9'], ['#a76bff', '#ff5fd2'], ['#8cff6b', '#ffc861'],
+    ['#ff8a5f', '#ffd36b'], ['#6bffd8', '#6b9cff']
+  ];
+
+  /* ---------------------------------------------------------
+     2. HELPERS
+     --------------------------------------------------------- */
+  const $ = (id) => document.getElementById(id);
+  const rand = (a, b) => Math.random() * (b - a) + a;
+  const randInt = (a, b) => Math.floor(rand(a, b + 1));
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+  // Pick a random item that is different from `prev` when possible
+  function pickNot(arr, prev) {
+    if (arr.length < 2) return arr[0];
+    let v = pick(arr), guard = 0;
+    while (v === prev && guard++ < 12) v = pick(arr);
+    return v;
+  }
+
+  function replay(el, cls) {
+    el.classList.remove(cls);
+    void el.offsetWidth; // force reflow so the animation restarts
+    el.classList.add(cls);
+  }
+
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------------------------------------------------------
+     3. STARFIELD CANVAS
+        Hundreds of stars that twinkle. During a launch they
+        stretch into streaks for a warp-speed feel.
+     --------------------------------------------------------- */
+  const starfield = (function () {
+    const canvas = $('stars');
+    const ctx = canvas.getContext('2d');
+    let stars = [];
+    let W = 0, H = 0, dpr = 1;
+    let speed = 1;        // current scroll speed
+    let targetSpeed = 1;  // eased toward during warp
+
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = window.innerWidth;
+      H = window.innerHeight;
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      build();
+    }
+
+    // Density scales with screen area, capped for performance
+    function build() {
+      const count = Math.min(520, Math.max(220, Math.round((W * H) / 2600)));
+      stars = [];
+      for (let i = 0; i < count; i++) {
+        stars.push({
+          x: Math.random() * W,
+          y: Math.random() * H,
+          r: rand(0.35, 1.7),
+          depth: rand(0.25, 1),             // parallax/warp depth
+          tw: rand(0, Math.PI * 2),         // twinkle phase
+          twSpeed: rand(0.015, 0.06),
+          hue: Math.random() < 0.18 ? pick(['#9ad8ff', '#ffd9f2', '#fff3c4']) : '#ffffff'
+        });
+      }
+    }
+
+    function warp(on) {
+      targetSpeed = on ? 26 : 1;
+    }
+
+    function frame() {
+      // Ease the speed so warp in/out feels smooth
+      speed += (targetSpeed - speed) * 0.045;
+
+      ctx.clearRect(0, 0, W, H);
+
+      for (let i = 0; i < stars.length; i++) {
+        const s = stars[i];
+
+        // Twinkle
+        s.tw += s.twSpeed;
+        const alpha = 0.35 + Math.sin(s.tw) * 0.32 + (speed > 3 ? 0.3 : 0);
+
+        // Drift downward; faster during warp and for closer stars
+        s.y += speed * s.depth * (speed > 3 ? 1 : 0.06);
+        if (s.y > H + 10) { s.y = -10; s.x = Math.random() * W; }
+
+        ctx.globalAlpha = Math.max(0.05, Math.min(1, alpha));
+        ctx.fillStyle = s.hue;
+
+        if (speed > 3) {
+          // Warp: stretch stars into vertical streaks
+          const len = speed * s.depth * 2.2;
+          ctx.fillRect(s.x, s.y, Math.max(1, s.r * 0.9), len);
+        } else {
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+      requestAnimationFrame(frame);
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+    requestAnimationFrame(frame);
+
+    return { warp: warp };
+  })();
+
+  /* ---------------------------------------------------------
+     4. COSMIC DUST + DRIFTING BACKGROUND PLANETS
+     --------------------------------------------------------- */
+  function buildDust() {
+    if (reduceMotion) return;
+    const host = $('dust');
+    const tints = ['rgba(167,107,255,.5)', 'rgba(77,227,255,.4)', 'rgba(255,95,210,.4)', 'rgba(140,255,107,.28)'];
+    for (let i = 0; i < 7; i++) {
+      const d = document.createElement('div');
+      d.className = 'dust-cloud';
+      const size = rand(180, 420);
+      d.style.width = size + 'px';
+      d.style.height = size * rand(0.5, 0.9) + 'px';
+      d.style.top = rand(-5, 95) + '%';
+      d.style.background = tints[i % tints.length];
+      d.style.animationDuration = rand(70, 150) + 's';
+      d.style.animationDelay = -rand(0, 150) + 's';
+      host.appendChild(d);
+    }
+  }
+
+  function buildDriftPlanets() {
+    if (reduceMotion) return;
+    const host = $('driftPlanets');
+    for (let i = 0; i < 5; i++) {
+      const p = PLANETS[randInt(0, PLANETS.length - 1)];
+      const el = document.createElement('div');
+      el.className = 'drift-planet';
+      const size = rand(34, 92);
+      el.style.width = size + 'px';
+      el.style.height = size + 'px';
+      el.style.top = rand(5, 85) + '%';
+      el.style.backgroundImage = p.surface;
+      el.style.backgroundSize = '200% 100%';
+      el.style.boxShadow = 'inset -8px -6px 18px rgba(0,0,0,.7), 0 0 26px ' + p.glow;
+      el.style.animationDuration = rand(90, 190) + 's, ' + rand(20, 50) + 's';
+      el.style.animationDelay = -rand(0, 190) + 's, 0s';
+      host.appendChild(el);
+    }
+  }
+
+  /* ---------------------------------------------------------
+     5. SHOOTING STARS — spawn randomly every few seconds
+     --------------------------------------------------------- */
+  function spawnShootingStar() {
+    if (reduceMotion) return;
+    const host = $('shooting');
+    const el = document.createElement('div');
+    el.className = 'shooting-star';
+
+    const startX = rand(-10, 80);
+    const startY = rand(-5, 45);
+    const angle = rand(18, 42);
+    const dist = rand(60, 110);
+
+    el.style.left = startX + 'vw';
+    el.style.top = startY + 'vh';
+    el.style.setProperty('--angle', angle + 'deg');
+    el.style.setProperty('--dx', dist + 'vw');
+    el.style.setProperty('--dy', (dist * Math.tan(angle * Math.PI / 180) * 0.6) + 'vh');
+    el.style.animationDuration = rand(0.8, 1.8) + 's';
+
+    host.appendChild(el);
+    el.addEventListener('animationend', () => el.remove());
+  }
+
+  function scheduleShootingStars() {
+    const delay = rand(1800, 5200);
+    setTimeout(function () {
+      spawnShootingStar();
+      if (Math.random() < 0.25) setTimeout(spawnShootingStar, 300); // occasional double
+      scheduleShootingStars();
+    }, delay);
+  }
+
+  /* ---------------------------------------------------------
+     6. TITLE BUILDER — split into shimmering letters
+     --------------------------------------------------------- */
+  function buildTitle() {
+    const words = ['COSMIC', 'EXPLORER'];
+    const host = $('title');
+    host.textContent = '';
+    let n = 0;
+
+    words.forEach(function (word, wi) {
+      const w = document.createElement('span');
+      w.className = 'word';
+      word.split('').forEach(function (c) {
+        const s = document.createElement('span');
+        s.className = 'ch';
+        s.textContent = c;
+        s.style.animationDelay = (n * 0.08) + 's, ' + (n * 0.11) + 's';
+        w.appendChild(s);
+        n++;
+      });
+      host.appendChild(w);
+      if (wi < words.length - 1) host.appendChild(document.createTextNode(' '));
+    });
+  }
+
+  /* ---------------------------------------------------------
+     7. PARALLAX — content shifts subtly with pointer / tilt
+     --------------------------------------------------------- */
+  function initParallax() {
+    if (reduceMotion) return;
+    const layers = [
+      { el: $('nebula'), f: 26 },
+      { el: $('dust'), f: 18 },
+      { el: $('driftPlanets'), f: 10 },
+      { el: $('parallax'), f: -7 }
+    ];
+
+    let tx = 0, ty = 0, cx = 0, cy = 0, raf = null;
+
+    function loop() {
+      cx += (tx - cx) * 0.07;
+      cy += (ty - cy) * 0.07;
+      layers.forEach(function (l) {
+        if (!l.el) return;
+        // Nebula keeps its own animation, so nudge via margin-free translate on a wrapper transform
+        l.el.style.setProperty('--px', (cx * l.f) + 'px');
+        l.el.style.setProperty('--py', (cy * l.f) + 'px');
+        if (l.el.id === 'parallax') {
+          l.el.style.transform = 'translate3d(' + (cx * l.f) + 'px,' + (cy * l.f) + 'px,0)';
+        } else if (l.el.id !== 'nebula') {
+          l.el.style.transform = 'translate3d(' + (cx * l.f) + 'px,' + (cy * l.f) + 'px,0)';
+        }
+      });
+      raf = requestAnimationFrame(loop);
+      if (Math.abs(tx - cx) < 0.001 && Math.abs(ty - cy) < 0.001) {
+        cancelAnimationFrame(raf);
+        raf = null;
+      }
+    }
+
+    function setFromPoint(x, y) {
+      tx = (x / window.innerWidth) * 2 - 1;
+      ty = (y / window.innerHeight) * 2 - 1;
+      if (!raf) raf = requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('mousemove', function (e) { setFromPoint(e.clientX, e.clientY); }, { passive: true });
+    window.addEventListener('touchmove', function (e) {
+      if (e.touches[0]) setFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+
+    // Device tilt on phones
+    window.addEventListener('deviceorientation', function (e) {
+      if (e.gamma == null || e.beta == null) return;
+      tx = Math.max(-1, Math.min(1, e.gamma / 35));
+      ty = Math.max(-1, Math.min(1, (e.beta - 45) / 35));
+      if (!raf) raf = requestAnimationFrame(loop);
+    });
+  }
+
+  /* ---------------------------------------------------------
+     8. TOAST
+     --------------------------------------------------------- */
+  let toastTimer = null;
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2800);
+  }
+
+  /* ---------------------------------------------------------
+     9. ASTRONAUT
+     --------------------------------------------------------- */
+  let lastAstroLine = '';
+  let astroTimer = null;
+
+  function astronautSay(line) {
+    const box = $('astroSay');
+    box.textContent = line;
+    box.classList.add('show');
+    clearTimeout(astroTimer);
+    astroTimer = setTimeout(function () { box.classList.remove('show'); }, 3600);
+  }
+
+  function pokeAstronaut() {
+    const a = $('astronaut');
+    replay(a, 'spin');
+    // Swap the emoji for variety
+    a.textContent = pick(['👨‍🚀', '👩‍🚀', '🧑‍🚀']);
+    lastAstroLine = pickNot(ASTRO_LINES, lastAstroLine);
+    astronautSay(lastAstroLine);
+  }
+
+  /* ---------------------------------------------------------
+     10. ROCKET LAUNCH SEQUENCE
+         countdown -> rocket + flames + smoke -> shake ->
+         warp stars -> mission report card
+     --------------------------------------------------------- */
+  let launching = false;
+
+  function doCountdown(done) {
+    const cd = $('countdown');
+    cd.classList.add('active');
+    let n = 3;
+
+    function tick() {
+      cd.textContent = '';
+      const s = document.createElement('span');
+      s.textContent = n > 0 ? String(n) : 'GO!';
+      cd.appendChild(s);
+      n--;
+      if (n >= -1) {
+        setTimeout(tick, 700);
+      } else {
+        cd.classList.remove('active');
+        cd.textContent = '';
+        done();
+      }
+    }
+    tick();
+  }
+
+  function launchRocket() {
+    const layer = $('rocketLayer');
+    layer.classList.add('active');
+    layer.textContent = '';
+
+    // Build the rocket + flame
+    const rocket = document.createElement('div');
+    rocket.className = 'rocket';
+    const body = document.createElement('div');
+    body.className = 'rocket-body';
+    body.textContent = '🚀';
+    const flame = document.createElement('div');
+    flame.className = 'flame';
+    rocket.appendChild(body);
+    rocket.appendChild(flame);
+    layer.appendChild(rocket);
+
+    // Puff smoke from the rocket's current position
+    const smokeTimer = setInterval(function () {
+      const r = rocket.getBoundingClientRect();
+      if (r.top > window.innerHeight || r.bottom < -50) return;
+      const s = document.createElement('div');
+      s.className = 'smoke';
+      const size = rand(26, 70);
+      s.style.width = size + 'px';
+      s.style.height = size + 'px';
+      s.style.left = (r.left + r.width / 2 + rand(-18, 18)) + 'px';
+      s.style.top = (r.bottom - 10) + 'px';
+      s.style.setProperty('--sx', rand(-60, 60) + 'px');
+      layer.appendChild(s);
+      s.addEventListener('animationend', () => s.remove());
+    }, 70);
+
+    rocket.addEventListener('animationend', function () {
+      clearInterval(smokeTimer);
+      rocket.remove();
+      setTimeout(function () {
+        layer.classList.remove('active');
+        layer.textContent = '';
+      }, 1200);
+    });
+  }
+
+  function showMissionReport() {
+    const card = $('missionCard');
+    const f = pick(FACTS);
+    const line = pick(MISSION_LINES);
+    $('missionText').innerHTML = line + '<br><br>' + f.icon + ' <strong>Space log:</strong> ' + f.text;
+    card.classList.add('show');
+    replay(card, 'enter');
+  }
+
+  function launchMission() {
+    if (launching) return;
+    launching = true;
+
+    const btn = $('launchBtn');
+    btn.disabled = true;
+    replay(btn, 'bounce');
+    $('missionCard').classList.remove('show');
+    astronautSay('Hold on to something!');
+
+    doCountdown(function () {
+      launchRocket();
+
+      // Shake the screen
+      if (!reduceMotion) replay($('shakeWrap'), 'shake');
+
+      // Warp the stars
+      starfield.warp(true);
+      $('warp').classList.add('on');
+      setTimeout(function () { $('warp').classList.remove('on'); }, 700);
+
+      // Extra shooting stars for drama
+      for (let i = 0; i < 5; i++) setTimeout(spawnShootingStar, i * 240);
+
+      // Land the mission
+      setTimeout(function () {
+        starfield.warp(false);
+        showMissionReport();
+        astronautSay('We made it! Barely.');
+        btn.disabled = false;
+        btn.textContent = '🚀 Launch Again';
+        launching = false;
+      }, 3400);
+    });
+  }
+
+  /* ---------------------------------------------------------
+     11. PLANET CARDS + VIEWER
+     --------------------------------------------------------- */
+
+  // Apply a planet's CSS surface + glow to any .planet element
+  function paintPlanet(el, p) {
+    el.style.setProperty('--surface', p.surface);
+    el.style.setProperty('--glow', p.glow);
+    el.classList.toggle('ringed', !!p.ringed);
+    el.classList.toggle('ringed-v', !!p.ringV);
+    if (p.ring) el.style.setProperty('--ring', p.ring);
+  }
+
+  function buildPlanetCards() {
+    const grid = $('planetGrid');
+    grid.textContent = '';
+
+    PLANETS.forEach(function (p, i) {
+      const card = document.createElement('article');
+      card.className = 'planet-card';
+      card.style.setProperty('--glow', p.glow);
+      card.style.animationDelay = (i * 0.07) + 's';
+      card.dataset.id = p.id;
+
+      const globe = document.createElement('div');
+      globe.className = 'planet';
+      paintPlanet(globe, p);
+
+      const name = document.createElement('h3');
+      name.className = 'planet-name';
+      name.textContent = p.name;
+
+      const dist = document.createElement('p');
+      dist.className = 'planet-dist';
+      dist.textContent = '☀️ ' + p.dist + ' from the Sun';
+
+      const fact = document.createElement('p');
+      fact.className = 'planet-fact';
+      fact.textContent = p.fact;
+
+      const btn = document.createElement('button');
+      btn.className = 'btn-visit';
+      btn.type = 'button';
+      btn.textContent = 'Visit Planet';
+
+      card.append(globe, name, dist, fact, btn);
+      grid.appendChild(card);
+
+      // Both the card and the button select the planet
+      card.addEventListener('click', function () { selectPlanet(p.id); });
+    });
+  }
+
+  let currentPlanet = null;
+
+  function selectPlanet(id) {
+    const p = PLANETS.find(function (x) { return x.id === id; });
+    if (!p || currentPlanet === id) {
+      if (p) toast('Already orbiting ' + p.name + ' 🛰️');
+      return;
+    }
+    currentPlanet = id;
+
+    // Highlight the chosen card
+    document.querySelectorAll('.planet-card').forEach(function (c) {
+      c.classList.toggle('selected', c.dataset.id === id);
+    });
+
+    // Grow the planet in the centre stage
+    const big = $('bigPlanet');
+    paintPlanet(big, p);
+    replay(big, 'arrive');
+
+    // Fly the spaceship toward it
+    replay($('ship'), 'fly');
+
+    // Tint the whole scene toward the planet's palette
+    document.documentElement.style.setProperty('--accent', p.glow);
+    $('sky').style.background =
+      'radial-gradient(ellipse 120% 80% at 50% -10%, ' + p.sky + ' 0%, transparent 60%),' +
+      'radial-gradient(ellipse 80% 60% at 85% 20%, ' + p.sky + ' 0%, transparent 55%),' +
+      'linear-gradient(180deg, var(--bg-0) 0%, ' + p.sky + ' 55%, var(--bg-2) 100%)';
+
+    // Fade in the information panel
+    const info = $('planetInfo');
+    info.style.setProperty('--glow', p.glow);
+    $('pName').textContent = p.emoji + ' ' + p.name;
+    $('pSub').textContent = p.sub;
+    $('pFact').textContent = p.fact;
+    $('pDist').textContent = p.dist;
+    $('pDay').textContent = p.day;
+    $('pMoons').textContent = p.moons;
+    $('pTemp').textContent = p.temp;
+    replay(info, 'swap');
+
+    toast('🚀 Course set for ' + p.name + '!');
+    astronautSay('Next stop: ' + p.name + '!');
+  }
+
+  /* ---------------------------------------------------------
+     12. RANDOM SPACE FACT (flip animation)
+     --------------------------------------------------------- */
+  let lastFact = null;
+
+  function showRandomFact() {
+    const f = pickNot(FACTS, lastFact);
+    lastFact = f;
+
+    const card = $('factCard');
+    replay(card, 'flip');
+
+    // Swap the content at the midpoint of the flip
+    setTimeout(function () {
+      $('factIcon').textContent = f.icon;
+      $('factText').textContent = f.text;
+    }, 400);
+  }
+
+  /* ---------------------------------------------------------
+     13. ALIEN GENERATOR
+     --------------------------------------------------------- */
+  let currentAlien = '';
+
+  function createAlien() {
+    const emoji = pick(ALIEN_EMOJI);
+    const name = pick(ALIEN_FIRST) + (Math.random() < 0.45 ? ' ' + pick(ALIEN_LAST) : '');
+    const planet = pick(ALIEN_PLANET);
+    const loves = pick(ALIEN_LOVES);
+    const loves2 = pickNot(ALIEN_LOVES, loves);
+    const hates = pick(ALIEN_HATES);
+    const colors = pick(ALIEN_COLORS);
+
+    // Build 3 unique traits
+    const traits = [];
+    while (traits.length < 3) {
+      const t = pick(ALIEN_TRAITS);
+      if (traits.indexOf(t) === -1) traits.push(t);
+    }
+
+    const bio = name + ' from Planet ' + planet + ' loves ' + loves +
+                ' and ' + loves2 + ', but absolutely cannot stand ' + hates + '.';
+    currentAlien = emoji + ' ' + bio + ' Traits: ' + traits.join(', ') + '.';
+
+    // Paint the card
+    const card = $('alienCard');
+    card.style.setProperty('--a1', colors[0]);
+    card.style.setProperty('--a2', colors[1]);
+    card.style.borderColor = colors[0];
+    card.style.boxShadow = '0 0 44px ' + colors[0] + '55';
+
+    const avatar = $('alienAvatar');
+    avatar.textContent = emoji;
+    avatar.style.setProperty('--a1', colors[0]);
+    avatar.style.setProperty('--a2', colors[1]);
+    replay(avatar, 'pop');
+
+    const nameEl = $('alienName');
+    nameEl.textContent = name;
+    nameEl.style.setProperty('--a1', colors[0]);
+
+    $('alienBio').textContent = bio;
+
+    const row = $('alienTraits');
+    row.textContent = '';
+    traits.forEach(function (t, i) {
+      const chip = document.createElement('span');
+      chip.className = 'trait';
+      chip.textContent = t;
+      chip.style.setProperty('--a1', colors[0]);
+      chip.style.animationDelay = (0.1 + i * 0.09) + 's';
+      row.appendChild(chip);
+    });
+
+    replay(card, 'enter');
+    toast('👽 ' + name + ' has entered the chat!');
+  }
+
+  // Copy the alien description to the clipboard
+  async function copyAlien() {
+    if (!currentAlien) {
+      toast('Create an alien first! 👽');
+      return;
+    }
+    let ok = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(currentAlien);
+        ok = true;
+      }
+    } catch (e) { ok = false; }
+
+    if (!ok) {
+      // Fallback for browsers without clipboard access
+      const ta = document.createElement('textarea');
+      ta.value = currentAlien;
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+    }
+
+    toast(ok ? '📋 Alien copied! Introduce them to your friends.' : 'Copy failed — select the text manually.');
+  }
+
+  /* ---------------------------------------------------------
+     14. BOOT
+     --------------------------------------------------------- */
+  buildTitle();
+  buildDust();
+  buildDriftPlanets();
+  buildPlanetCards();
+  initParallax();
+  scheduleShootingStars();
+
+  // Start on Earth so the stage is never empty
+  paintPlanet($('bigPlanet'), PLANETS[2]);
+  $('planetInfo').style.setProperty('--glow', PLANETS[2].glow);
+
+  // Wire up every button
+  $('launchBtn').addEventListener('click', launchMission);
+  $('astronaut').addEventListener('click', pokeAstronaut);
+  $('factBtn').addEventListener('click', showRandomFact);
+  $('alienBtn').addEventListener('click', createAlien);
+  $('alienCopyBtn').addEventListener('click', copyAlien);
+
+  // Friendly greeting after a moment
+  setTimeout(function () { astronautSay('Welcome aboard! Tap me anytime. 👋'); }, 1400);
+})();
+</script>
+</body>
+</html>
